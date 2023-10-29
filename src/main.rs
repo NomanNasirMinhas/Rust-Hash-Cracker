@@ -2,9 +2,10 @@ use clap::{command, ArgAction, Arg};
 use std::{
     env,
     fs::File,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader}, path,
     };
 use std::sync::{Arc, Mutex, Condvar};
+use std::io::Write;
 use std::sync::mpsc;
 use sha2::{Sha256, Sha512, Digest};
 #[derive(Debug)]
@@ -57,7 +58,35 @@ fn main() {
     let index = args.get_flag("index");
     let threads = args.get_one::<String>("threads").unwrap();
     let hash_type = get_hash_type(hash.as_ref());    
+    let hash_path = dict.replace(".txt", ".index");
 
+    // Check if index file exists for this dictionary at hash_path
+    if path::Path::new(&hash_path).exists() {
+        println!("Index File already exists. Using it to crack the hash.");
+        let hash_index_file = File::open(hash_path.clone()).expect("Error opening index file");
+        let reader = BufReader::new(&hash_index_file);
+        let mut hash_index: Vec<String> = Vec::new();
+        for line in reader.lines() {
+            if line.is_ok() {
+                hash_index.push(line.unwrap());
+            }
+        }
+        let mut found = false;
+        for hash_word in hash_index.iter() {
+            let hash_word = hash_word.split(":").collect::<Vec<&str>>();
+            if hash_word[0] == hash {
+                found = true;
+                // print with a banner
+                println!("\n*****************************************************");
+                println!("HASH CRACKED TO => {}", hash_word[1]);  
+                println!("*****************************************************\n");
+                return;
+            }
+        }
+        if !found {
+            println!("\n********************COULD NOT FIND IN HASH FILE********************\n");
+        }
+    }
     // Maximum number of threads
     if threads.parse::<usize>().unwrap() > 10 {
         println!("Maximum number of threads is 10");
@@ -65,7 +94,12 @@ fn main() {
     }
 
     if threads.parse::<usize>().unwrap() < 1 {
-        panic!("Minimum number of threads is 1");
+        println!("Minimum number of threads is 1");
+        return;
+    }
+
+    if index {
+        println!("Running in index mode. This may longer to crack the hash. But can be useful later on.")
     }
     println!("Detected Hash Type: {:?}", hash_type);
     
@@ -75,6 +109,8 @@ fn main() {
         HashType::SHA256 => get_sha256_hash,
         HashType::SHA512 => get_sha512_hash,
     };
+
+    // Check if dictionary file exist
     
     // Read dictionary file
     println!("Reading dictionary file...{}", dict);
@@ -103,7 +139,7 @@ fn main() {
     let not_found_count = Arc::new((Mutex::new(0), Condvar::new()));
     let now = std::time::Instant::now();
     let iterations = words.chunks(chunk_size).len();
-    println!("Starting {} threads...", iterations);
+    println!("Starting Hash Crack. Hold on tight...");
     for chunk in words.chunks(chunk_size) {
         let sender = sender.clone();
         let stop_signal = Arc::clone(&stop_signal);
@@ -159,7 +195,7 @@ fn main() {
         });
         handles.push(handle);
     }
-
+    
     // Wait for any thread to signal to stop
     let (lock, cvar) = &*stop_signal;
     let mut found_sig = lock.lock().unwrap();
@@ -167,26 +203,38 @@ fn main() {
         found_sig = cvar.wait(found_sig).unwrap();
     }
     let elapsed = now.elapsed();
-
-    println!("Stopping all threads...");
+    println!("Hash Cracked in: {:?}", elapsed);
+    println!("Cleaning Up... Please wait.");
     // Close the sender to signal other threads to stop
     drop(sender);
 
     // Wait for all threads to finish
-    let mut indexed_hashes = 0;
+    let indexed_hashes = Arc::new(Mutex::new(Vec::new()));
     for _ in 0..threads.parse::<usize>().unwrap() {
         let idx = receiver.recv();
         if idx.is_ok() && index {
-            indexed_hashes += idx.unwrap().lock().unwrap().len();
+            let mut indexed_hashes = indexed_hashes.lock().unwrap();
+            indexed_hashes.append(&mut idx.unwrap().lock().unwrap());
         }
     }
 
     println!("All threads have finished.");
     if index
     {
-        println!("Indexed {} Hashes", indexed_hashes);
+
+        println!("Saving Indexed {} Hashes at {}.", indexed_hashes.lock().unwrap().len(), hash_path);
+        // Save indexed hashes to file. If already exists, overwrite
+        if path::Path::new(&hash_path).exists() {
+            println!("Index File already exists. Overwriting...");
+            std::fs::remove_file(&hash_path).unwrap();
+        }
+        let mut file = File::create(hash_path).unwrap();
+        for hash in indexed_hashes.lock().unwrap().iter() {
+            file.write_all(hash.as_ref()).unwrap();
+            file.write_all("\n".as_ref()).unwrap();
+        }
+
     }
-    println!("Hash Cracked in: {:?}", elapsed);
 
 
 }
