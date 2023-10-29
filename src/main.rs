@@ -1,7 +1,6 @@
-use clap::{arg, command, value_parser, ArgAction, Command, Arg};
+use clap::{command, ArgAction, Arg};
 use std::{
     env,
-    error::Error,
     fs::File,
     io::{BufRead, BufReader},
     };
@@ -60,8 +59,9 @@ fn main() {
     let hash_type = get_hash_type(hash.as_ref());    
 
     // Maximum number of threads
-    if threads.parse::<usize>().unwrap() > 100 {
-        panic!("Maximum number of threads is 100");
+    if threads.parse::<usize>().unwrap() > 10 {
+        println!("Maximum number of threads is 10");
+        return;
     }
 
     if threads.parse::<usize>().unwrap() < 1 {
@@ -77,22 +77,33 @@ fn main() {
     };
     
     // Read dictionary file
+    println!("Reading dictionary file...{}", dict);
     let wordlist_file = File::open(dict).expect("Error opening dictionary file");
     let reader = BufReader::new(&wordlist_file);
-    let words = reader.lines().map(|l| l.unwrap()).collect::<Vec<String>>();
+    let mut words: Vec<String> = Vec::new();
+    let mut error_count = 0;
+    for line in reader.lines() {
+        if line.is_ok() {
+            words.push(line.unwrap());
+        }
+        else{
+            error_count += 1;
+        }
+    }
     println!("Total words in dictionary: {}", words.len());
+    println!("Total ignored words in dictionary due to read errors: {}", error_count);
     
-    // Start timer
     let mut handles = vec![];    
-    let mut chunk_size = words.len() / threads.parse::<usize>().unwrap();
+    let mut chunk_size = words.len() / (threads.parse::<usize>().unwrap()+1);
     if chunk_size == 0 {
         chunk_size = 1;
     }
     let (sender, receiver) = mpsc::channel();
     let stop_signal = Arc::new((Mutex::new(false), Condvar::new()));
-    let not_found_count = Arc::new((Mutex::new(0), Condvar::new()));;
+    let not_found_count = Arc::new((Mutex::new(0), Condvar::new()));
     let now = std::time::Instant::now();
-    let mut iterations = words.chunks(chunk_size).len();
+    let iterations = words.chunks(chunk_size).len();
+    println!("Starting {} threads...", iterations);
     for chunk in words.chunks(chunk_size) {
         let sender = sender.clone();
         let stop_signal = Arc::clone(&stop_signal);
@@ -105,7 +116,7 @@ fn main() {
             let iterations = iterations.clone();
             let mut found = false;
             let hash_index: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
-            for (i, word) in chunk.iter().enumerate() {
+            for word in chunk.iter() {
                 let word = word.trim();                
                 let word_hash = input_hash_fn(word);
                 if index {
@@ -131,7 +142,7 @@ fn main() {
             }
             if !found {
                 // print with thread id
-                let (lock, cvar) = &*not_found_count;
+                let (lock, _) = &*not_found_count;
                 let mut count = lock.lock().unwrap();
                 *count += 1;
                 if *count == iterations {
@@ -143,7 +154,7 @@ fn main() {
                 }
             }
             // Send thread id to main thread
-            sender.send(hash_index);
+            let _ = sender.send(hash_index);
             
         });
         handles.push(handle);
@@ -171,8 +182,11 @@ fn main() {
     }
 
     println!("All threads have finished.");
-    println!("Indexed {} Hashes", indexed_hashes);
-    println!("Time elapsed: {:?}", elapsed);
+    if index
+    {
+        println!("Indexed {} Hashes", indexed_hashes);
+    }
+    println!("Hash Cracked in: {:?}", elapsed);
 
 
 }
