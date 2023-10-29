@@ -21,6 +21,9 @@ Replace [OPTIONS] with the required arguments and options:
 
 ``cargo run -- -c <HASH_TO_CRACK> -d <DICTIONARY_FILE> -i -t 4``
 
+![cargo run -- -c 6d18cd6c5aff8c0552d9805d1c0f3b2004b80ac6369607579cd330184b955fb6be187c396cb62ef34626935615272a75ca371a79127718dc4e1cd3ae6d82d4e6 -d .\rockyou.txt -t 10 -i](./src/img/1.PNG)
+#### Above image shows cracking a SHA512 using rockyou.txt file containing over 14 million passowrds.
+
 # Supported Hash Types
 The program detects the hash type based on the length of the provided hash. Supported hash types include:
 
