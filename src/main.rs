@@ -118,7 +118,10 @@ fn main() {
                 }
                 if word_hash == hash {
                     found = true;
-                    println!("Found match: {}", word);  
+                    // print with a banner
+                    println!("\n*****************************************************");
+                    println!("HASH CRACKED TO => {}", word);  
+                    println!("*****************************************************\n");
                     let (lock, cvar) = &*stop_signal;
                     let mut stop = lock.lock().unwrap();
                     *stop = true;
@@ -132,7 +135,7 @@ fn main() {
                 let mut count = lock.lock().unwrap();
                 *count += 1;
                 if *count == iterations {
-                    println!("No match found");
+                    println!("\n********************NO MATCH FOUND********************\n");
                     let (lock, cvar) = &*stop_signal;
                     let mut stop = lock.lock().unwrap();
                     *stop = true;
